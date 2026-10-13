@@ -89,17 +89,40 @@ campusflow/
     __init__.py
     tickets.py
     storage.py
+    reports.py
+    cli.py
+    __main__.py
 tests/
     __init__.py
     test_tickets.py
     test_storage.py
+    test_reports.py
+    test_ticket_manager.py
+    test_cli.py
+main.py
+ticket_manager.py
+reports.py
+storage.py
 README.md
 ```
 
-This structure describes the files currently implemented on the relevant
-development branches. Assignment, lifecycle, reporting, queue, and CLI
-integration should be documented as implemented only after their code
-has been reviewed and merged.
+This structure describes the fully implemented files across the package, CLI,
+and test suite. Assignment, lifecycle, reporting, work queue, persistence, and
+CLI integration are all implemented and verified by automated unit tests.
+
+## Running the CLI
+
+You can start the interactive CLI helpdesk application using either:
+
+```bash
+python3 main.py
+```
+
+or:
+
+```bash
+python3 -m campusflow
+```
 
 ## Team workflow
 

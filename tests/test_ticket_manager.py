@@ -1,6 +1,11 @@
 import unittest
 
-from ticket_manager import assign_ticket, change_status, get_work_queue
+from ticket_manager import (
+    assign_ticket,
+    change_status,
+    get_work_queue,
+    reopen_ticket,
+)
 
 
 class TestAssignTicket(unittest.TestCase):
@@ -55,6 +60,12 @@ class TestAssignTicket(unittest.TestCase):
             original_assignee,
         )
 
+    def test_resolved_ticket_cannot_be_assigned_without_reopening(self):
+        self.tickets[0]["status"] = "resolved"
+
+        with self.assertRaises(ValueError):
+            assign_ticket(self.tickets, "T001", "David")
+
 
 class TestChangeStatus(unittest.TestCase):
     def setUp(self):
@@ -64,7 +75,7 @@ class TestChangeStatus(unittest.TestCase):
                 "title": "Campus Wi-Fi is down",
                 "priority": "critical",
                 "status": "open",
-                "assigned_to": None,
+                "assigned_to": "David",
             },
             {
                 "id": "T002",
@@ -79,6 +90,10 @@ class TestChangeStatus(unittest.TestCase):
         result = change_status(self.tickets, "T001", "in_progress")
 
         self.assertEqual(result["status"], "in_progress")
+
+    def test_unassigned_ticket_cannot_move_to_in_progress(self):
+        with self.assertRaises(ValueError):
+            change_status(self.tickets, "T002", "in_progress")
 
     def test_change_status_to_resolved(self):
         result = change_status(self.tickets, "T001", "resolved")
@@ -100,6 +115,24 @@ class TestChangeStatus(unittest.TestCase):
     def test_unknown_ticket_raises_error(self):
         with self.assertRaises(ValueError):
             change_status(self.tickets, "T999", "resolved")
+
+    def test_resolved_ticket_cannot_move_to_in_progress_without_reopening(self):
+        change_status(self.tickets, "T001", "resolved")
+
+        with self.assertRaises(ValueError):
+            change_status(self.tickets, "T001", "in_progress")
+
+    def test_resolved_ticket_can_be_reopened_to_open(self):
+        change_status(self.tickets, "T001", "resolved")
+        result = change_status(self.tickets, "T001", "open")
+
+        self.assertEqual(result["status"], "open")
+
+    def test_reopen_ticket_function(self):
+        change_status(self.tickets, "T001", "resolved")
+        result = reopen_ticket(self.tickets, "T001")
+
+        self.assertEqual(result["status"], "open")
 
 
 class TestGetWorkQueue(unittest.TestCase):
@@ -152,19 +185,42 @@ class TestGetWorkQueue(unittest.TestCase):
             ticket_ids.index("T004"),
         )
 
+    def test_queue_sorts_by_numeric_id_for_equal_priorities(self):
+        equal_priority_tickets = [
+            {
+                "id": "T010",
+                "title": "DNS failure",
+                "priority": "high",
+                "status": "open",
+            },
+            {
+                "id": "T002",
+                "title": "Email server slow",
+                "priority": "high",
+                "status": "open",
+            },
+            {
+                "id": "T005",
+                "title": "Switch down",
+                "priority": "high",
+                "status": "open",
+            },
+        ]
+
+        result = get_work_queue(equal_priority_tickets)
+        ids = [t["id"] for t in result]
+
+        self.assertEqual(ids, ["T002", "T005", "T010"])
+
     def test_empty_ticket_list_returns_empty_queue(self):
         self.assertEqual(get_work_queue([]), [])
 
     def test_queue_does_not_modify_original_list(self):
-        original_ids = [
-            ticket["id"] for ticket in self.tickets
-        ]
+        original_ids = [ticket["id"] for ticket in self.tickets]
 
         get_work_queue(self.tickets)
 
-        updated_ids = [
-            ticket["id"] for ticket in self.tickets
-        ]
+        updated_ids = [ticket["id"] for ticket in self.tickets]
 
         self.assertEqual(updated_ids, original_ids)
 

@@ -1,6 +1,6 @@
 import unittest
 
-from reports import generate_report
+from campusflow.reports import generate_report
 
 
 class TestGenerateReport(unittest.TestCase):
@@ -78,6 +78,10 @@ class TestGenerateReport(unittest.TestCase):
                 "low": 0,
             },
         )
+
+    def test_non_list_tickets_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            generate_report("invalid")
 
 
 if __name__ == "__main__":
