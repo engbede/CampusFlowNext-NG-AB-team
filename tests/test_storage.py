@@ -2,8 +2,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from campusflow.storage import load_tickets, save_tickets
+from campusflow.tickets import add_note, create_ticket
 
 VALID_TICKET = {
     "id": "T001",
@@ -107,6 +109,61 @@ class TestLoadTickets(unittest.TestCase):
         with self.assertRaises(ValueError):
             load_tickets(self.path)
 
+    def test_legacy_record_without_notes_is_loaded(self):
+        legacy_ticket = VALID_TICKET.copy()
+        self.assertNotIn("notes", legacy_ticket)
+        self.path.write_text(json.dumps([legacy_ticket]), encoding="utf-8")
+
+        loaded = load_tickets(self.path)
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(loaded[0]["id"], "T001")
+        self.assertEqual(loaded[0].get("notes", []), [])
+
+    def test_ticket_with_valid_notes_is_loaded(self):
+        ticket_with_notes = VALID_TICKET.copy()
+        ticket_with_notes["notes"] = [
+            {"note_id": "N001", "author": "Alice", "message": "Investigating switch port."},
+            {"note_id": "N002", "author": "Bob", "message": "Port 3 reset successfully."},
+        ]
+        self.path.write_text(json.dumps([ticket_with_notes]), encoding="utf-8")
+
+        loaded = load_tickets(self.path)
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(len(loaded[0]["notes"]), 2)
+        self.assertEqual(loaded[0]["notes"][0]["note_id"], "N001")
+        self.assertEqual(loaded[0]["notes"][1]["note_id"], "N002")
+
+    def test_duplicate_note_ids_within_ticket_rejected_on_load(self):
+        ticket_with_dupe_notes = VALID_TICKET.copy()
+        ticket_with_dupe_notes["notes"] = [
+            {"note_id": "N001", "author": "Alice", "message": "First note."},
+            {"note_id": "N001", "author": "Bob", "message": "Duplicate ID note."},
+        ]
+        self.path.write_text(json.dumps([ticket_with_dupe_notes]), encoding="utf-8")
+
+        with self.assertRaises(ValueError):
+            load_tickets(self.path)
+
+    def test_invalid_note_structure_rejected_on_load(self):
+        ticket_with_bad_note = VALID_TICKET.copy()
+        ticket_with_bad_note["notes"] = [
+            {"note_id": "N001", "author": "", "message": "Blank author"}
+        ]
+        self.path.write_text(json.dumps([ticket_with_bad_note]), encoding="utf-8")
+
+        with self.assertRaises(ValueError):
+            load_tickets(self.path)
+
+    def test_failed_load_preserves_valid_in_memory_state(self):
+        in_memory_tickets = [VALID_TICKET.copy()]
+        original_tickets = in_memory_tickets.copy()
+        self.path.write_text("{corrupt json", encoding="utf-8")
+
+        with self.assertRaises(ValueError):
+            load_tickets(self.path)
+
+        self.assertEqual(in_memory_tickets, original_tickets)
+        self.assertEqual(in_memory_tickets[0]["id"], "T001")
 
 class TestSaveTickets(unittest.TestCase):
     def setUp(self):
@@ -168,6 +225,164 @@ class TestSaveTickets(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             save_tickets([invalid_ticket], self.path)
+
+    def test_save_ticket_with_notes(self):
+        ticket_with_notes = VALID_TICKET.copy()
+        ticket_with_notes["notes"] = [
+            {"note_id": "N001", "author": "Alice", "message": "Investigating server rack."},
+            {"note_id": "N002", "author": "Bob", "message": "Power cycle confirmed."},
+        ]
+
+        save_tickets([ticket_with_notes], self.path)
+        loaded = load_tickets(self.path)
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(len(loaded[0]["notes"]), 2)
+        self.assertEqual(loaded[0]["notes"][0]["note_id"], "N001")
+        self.assertEqual(loaded[0]["notes"][1]["note_id"], "N002")
+
+    def test_save_rejects_duplicate_note_ids(self):
+        invalid_ticket = VALID_TICKET.copy()
+        invalid_ticket["notes"] = [
+            {"note_id": "N001", "author": "Alice", "message": "Note one."},
+            {"note_id": "N001", "author": "Bob", "message": "Note two."},
+        ]
+
+        with self.assertRaises(ValueError):
+            save_tickets([invalid_ticket], self.path)
+
+        self.assertFalse(self.path.exists())
+
+    def test_save_rejects_invalid_note_message(self):
+        invalid_ticket = VALID_TICKET.copy()
+        invalid_ticket["notes"] = [
+            {"note_id": "N001", "author": "Alice", "message": "bad"}
+        ]
+
+        with self.assertRaises(ValueError):
+            save_tickets([invalid_ticket], self.path)
+
+        self.assertFalse(self.path.exists())
+
+    def test_invalid_save_with_bad_note_preserves_existing_file(self):
+        original_tickets = [VALID_TICKET.copy()]
+        save_tickets(original_tickets, self.path)
+        original_content = self.path.read_text(encoding="utf-8")
+
+        bad_ticket = VALID_TICKET.copy()
+        bad_ticket["notes"] = [
+            {"note_id": "N001", "author": "Alice", "message": "bad"}
+        ]
+
+        with self.assertRaises(ValueError):
+            save_tickets([bad_ticket], self.path)
+
+        self.assertEqual(self.path.read_text(encoding="utf-8"), original_content)
+
+    def test_save_cleans_temporary_file_on_write_error(self):
+        tickets = [VALID_TICKET.copy()]
+        with patch("json.dump", side_effect=RuntimeError("Simulated write error")):
+            with self.assertRaises(RuntimeError):
+                save_tickets(tickets, self.path)
+
+        temp_files = list(self.path.parent.glob(".*.tmp"))
+        self.assertEqual(temp_files, [])
+
+
+class TestStorageNotesAndContinuity(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp_dir.name) / "tickets.json"
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_notes_survive_save_load_round_trip(self):
+        tickets = []
+        t1 = create_ticket(tickets, "Network outage", "Network", "high", 10)
+        add_note(tickets, "T001", "Alice", "First diagnostic step.")
+        add_note(tickets, "T001", "Bob", "Router replaced successfully.")
+
+        t2 = create_ticket(tickets, "Software license", "Software", "low", 1)
+        add_note(tickets, "T002", "Charlie", "Contacted vendor for key.")
+
+        save_tickets(tickets, self.path)
+        loaded = load_tickets(self.path)
+
+        self.assertEqual(len(loaded), 2)
+        self.assertEqual(len(loaded[0]["notes"]), 2)
+        self.assertEqual(loaded[0]["notes"][0]["note_id"], "N001")
+        self.assertEqual(loaded[0]["notes"][1]["note_id"], "N002")
+        self.assertEqual(len(loaded[1]["notes"]), 1)
+        self.assertEqual(loaded[1]["notes"][0]["note_id"], "N001")
+
+    def test_ticket_and_note_id_continuity_after_reload(self):
+        tickets = []
+        create_ticket(tickets, "Ticket 1", "Network", "low", 1)
+        create_ticket(tickets, "Ticket 2", "Software", "low", 1)
+        add_note(tickets, "T001", "Alice", "Initial note on T001.")
+        add_note(tickets, "T001", "Alice", "Second note on T001.")
+
+        save_tickets(tickets, self.path)
+
+        # Simulate reloading application state from disk
+        reloaded_tickets = load_tickets(self.path)
+
+        # Creating next ticket must continue sequential ID
+        t3 = create_ticket(reloaded_tickets, "Ticket 3", "Other", "low", 1)
+        self.assertEqual(t3["id"], "T003")
+
+        # Adding note to T001 must continue from highest note ID (N003)
+        n3 = add_note(reloaded_tickets, "T001", "Bob", "Third note on T001 after reload.")
+        self.assertEqual(n3["note_id"], "N003")
+
+        # Adding note to T002 must start at N001
+        n_t2 = add_note(reloaded_tickets, "T002", "Charlie", "First note on T002 after reload.")
+        self.assertEqual(n_t2["note_id"], "N001")
+
+        # Adding note to T003 must start at N001
+        n_t3 = add_note(reloaded_tickets, "T003", "David", "First note on T003 after reload.")
+        self.assertEqual(n_t3["note_id"], "N001")
+
+    def test_non_contiguous_note_ids_continuity(self):
+        """Bug-hunter test: ticket with non-contiguous legacy note IDs generates safe next ID."""
+        ticket = VALID_TICKET.copy()
+        ticket["notes"] = [
+            {"note_id": "N001", "author": "Alice", "message": "First note."},
+            {"note_id": "N007", "author": "Bob", "message": "Historical note jumping to 7."},
+        ]
+        save_tickets([ticket], self.path)
+
+        reloaded = load_tickets(self.path)
+        next_note = add_note(reloaded, "T001", "Charlie", "New note added after gap.")
+        self.assertEqual(next_note["note_id"], "N008")
+
+    def test_batch_save_partial_failure_preserves_disk_and_cleans_temp(self):
+        """Bug-hunter test: failure deep in batch save does not corrupt disk or leave stray temp files."""
+        initial_ticket = VALID_TICKET.copy()
+        save_tickets([initial_ticket], self.path)
+        original_mtime = self.path.stat().st_mtime_ns
+
+        # Batch with valid tickets followed by one ticket with invalid priority
+        batch = [
+            VALID_TICKET.copy(),
+            VALID_TICKET.copy(),
+            VALID_TICKET.copy(),
+        ]
+        batch[1]["id"] = "T002"
+        batch[2]["id"] = "T003"
+        batch[2]["priority"] = "low"  # Invalid: high urgency + 10 users must be critical
+
+        with self.assertRaises(ValueError):
+            save_tickets(batch, self.path)
+
+        # Original file must remain untouched
+        self.assertEqual(self.path.stat().st_mtime_ns, original_mtime)
+        reloaded = load_tickets(self.path)
+        self.assertEqual(len(reloaded), 1)
+
+        # No temporary files should linger in directory
+        temp_files = list(self.path.parent.glob(".*.tmp"))
+        self.assertEqual(temp_files, [])
 
 
 if __name__ == "__main__":
