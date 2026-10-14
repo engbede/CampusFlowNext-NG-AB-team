@@ -237,15 +237,35 @@ class TestCLI(unittest.TestCase):
             "campusflow.cli.get_default_data_file",
             return_value=self.data_file,
         ):
-            with patch("builtins.input", return_value="9"):
+            with patch("builtins.input", return_value="10"):
                 with patch("sys.stdout", new=io.StringIO()) as fake_out:
                     main()
                     output = fake_out.getvalue()
 
         self.assertIn("Goodbye!", output)
 
+    def test_main_runs_understanding_check(self):
+        with patch(
+            "campusflow.cli.get_default_data_file",
+            return_value=self.data_file,
+        ):
+            with patch(
+                "builtins.input",
+                side_effect=["9", "10"],
+            ):
+                with patch(
+                    "campusflow.cli.run_understanding_check"
+                ) as mock_check:
+                    with patch(
+                        "sys.stdout",
+                        new=io.StringIO(),
+                    ):
+                        main()
+
+        mock_check.assert_called_once_with()
+
     def test_main_invalid_menu_choice(self):
-        inputs = ["99", "9"]
+        inputs = ["99", "10"]
 
         with patch(
             "campusflow.cli.get_default_data_file",
@@ -257,7 +277,7 @@ class TestCLI(unittest.TestCase):
                     output = fake_out.getvalue()
 
         self.assertIn(
-            "Invalid choice. Please choose a number from 1 to 9.",
+            "Invalid choice. Please choose a number from 1 to 10.",
             output,
         )
 

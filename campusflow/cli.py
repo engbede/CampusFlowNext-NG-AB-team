@@ -12,6 +12,8 @@ from campusflow.tickets import (
     get_work_queue,
     reopen_ticket,
 )
+from campusflow.understanding_check import run_understanding_check
+
 
 DEFAULT_DATA_FILE = Path("data/tickets.json")
 
@@ -26,6 +28,7 @@ def get_default_data_file():
 def format_ticket(ticket):
     """Format a single ticket for readable display."""
     assigned = ticket.get("assigned_to") or "Unassigned"
+
     return (
         f"ID: {ticket.get('id', 'N/A')}\n"
         f"Title: {ticket.get('title', 'N/A')}\n"
@@ -47,6 +50,7 @@ def display_tickets(tickets):
     for ticket in tickets:
         print("-" * 40)
         print(format_ticket(ticket))
+
     print("-" * 40)
 
 
@@ -55,8 +59,11 @@ def create_ticket_menu(tickets, data_file=None):
     data_file = data_file or get_default_data_file()
 
     print("\n--- Create Ticket ---")
+
     title = input("Enter issue title: ").strip()
-    category = input("Enter category (Network, Hardware, Software, Other): ").strip()
+    category = input(
+        "Enter category (Network, Hardware, Software, Other): "
+    ).strip()
     urgency = input("Enter urgency (low, medium, high): ").strip()
     users_raw = input("Enter number of affected users: ").strip()
 
@@ -67,12 +74,20 @@ def create_ticket_menu(tickets, data_file=None):
         return
 
     try:
-        ticket = create_ticket(tickets, title, category, urgency, affected_users)
+        ticket = create_ticket(
+            tickets,
+            title,
+            category,
+            urgency,
+            affected_users,
+        )
         save_tickets(tickets, data_file)
-        print(f"\nTicket created successfully!")
+
+        print("\nTicket created successfully!")
         print(f"ID: {ticket['id']} | Priority: {ticket['priority']}")
+
     except ValueError as error:
-        print(f"Error: {error}") 
+        print(f"Error: {error}")
 
 
 def display_search_results(tickets):
@@ -96,13 +111,19 @@ def display_search_results(tickets):
 def search_tickets_menu(tickets):
     """Prompt for search criteria and display matching tickets."""
     print("\n--- Search Tickets ---")
-    query = input("Title contains (leave blank for any title): ").strip()
+
+    query = input(
+        "Title contains (leave blank for any title): "
+    ).strip()
+
     category = input(
         "Category (Network, Hardware, Software, Other; blank for any): "
     ).strip()
+
     status = input(
         "Status (open, in_progress, resolved; blank for any): "
     ).strip()
+
     priority = input(
         "Priority (critical, high, medium, low; blank for any): "
     ).strip()
@@ -126,6 +147,7 @@ def search_tickets_menu(tickets):
             priority=priority,
             sort_by_priority=sort_choice in {"y", "yes"},
         )
+
     except ValueError as error:
         print(f"Error: {error}")
         return
@@ -139,9 +161,11 @@ def show_work_queue(tickets):
     queue = get_work_queue(tickets)
 
     print("\nWORK QUEUE")
+
     if not queue:
         print("\nWork queue is empty.")
         return
+
     display_tickets(queue)
 
 
@@ -155,7 +179,12 @@ def assign_ticket_menu(tickets, data_file=None):
     try:
         ticket = assign_ticket(tickets, ticket_id, staff_name)
         save_tickets(tickets, data_file)
-        print(f"Ticket {ticket['id']} assigned to {ticket['assigned_to']}.")
+
+        print(
+            f"Ticket {ticket['id']} assigned to "
+            f"{ticket['assigned_to']}."
+        )
+
     except ValueError as error:
         print(f"Error: {error}")
 
@@ -165,13 +194,19 @@ def change_status_menu(tickets, data_file=None):
     data_file = data_file or get_default_data_file()
 
     ticket_id = input("Enter ticket ID: ").strip()
+
     print("Available statuses: open, in_progress, resolved")
     new_status = input("Enter new status: ").strip().lower()
 
     try:
         ticket = change_status(tickets, ticket_id, new_status)
         save_tickets(tickets, data_file)
-        print(f"Ticket {ticket['id']} status changed to {ticket['status']}.")
+
+        print(
+            f"Ticket {ticket['id']} status changed to "
+            f"{ticket['status']}."
+        )
+
     except ValueError as error:
         print(f"Error: {error}")
 
@@ -185,7 +220,9 @@ def reopen_ticket_menu(tickets, data_file=None):
     try:
         ticket = reopen_ticket(tickets, ticket_id)
         save_tickets(tickets, data_file)
+
         print(f"Ticket {ticket['id']} reopened to open status.")
+
     except ValueError as error:
         print(f"Error: {error}")
 
@@ -211,16 +248,18 @@ def show_report(tickets):
 
     print(f"\nResolved tickets: {report['resolved_tickets']}")
     print(f"Unresolved tickets: {report['unresolved_tickets']}")
+
     print(
         "Resolution percentage: "
         f"{report['resolution_percentage']:.1f}%"
     )
 
+
 def main(data_file=None):
     """Run the CampusFlow Helpdesk interactive CLI."""
     target_file = data_file or get_default_data_file()
-    tickets = load_tickets(target_file) 
-    
+    tickets = load_tickets(target_file)
+
     while True:
         print("\n=== CampusFlow Helpdesk ===")
         print("1. Create a ticket")
@@ -231,29 +270,47 @@ def main(data_file=None):
         print("6. Reopen a ticket")
         print("7. View report")
         print("8. Search tickets")
-        print("9. Exit")
+        print("9. Engineering Understanding Check")
+        print("10. Exit")
 
         choice = input("Choose an option: ").strip()
 
         if choice == "1":
             create_ticket_menu(tickets, target_file)
+
         elif choice == "2":
             display_tickets(tickets)
+
         elif choice == "3":
             show_work_queue(tickets)
+
         elif choice == "4":
             assign_ticket_menu(tickets, target_file)
+
         elif choice == "5":
             change_status_menu(tickets, target_file)
+
         elif choice == "6":
             reopen_ticket_menu(tickets, target_file)
+
         elif choice == "7":
             show_report(tickets)
+
         elif choice == "8":
             search_tickets_menu(tickets)
+
         elif choice == "9":
+            run_understanding_check()
+
+        elif choice == "10":
             print("Goodbye!")
             break
-        else:
-            print("Invalid choice. Please choose a number from 1 to 9.")
 
+        else:
+            print(
+                "Invalid choice. Please choose a number from 1 to 10."
+            )
+
+
+if __name__ == "__main__":
+    main()
