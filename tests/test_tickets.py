@@ -1,6 +1,12 @@
 import unittest
 
-from campusflow.tickets import calculate_priority, create_ticket
+from campusflow.tickets import (
+    calculate_priority,
+    create_ticket,
+    validate_note,
+    validate_ticket,
+    validate_tickets,
+)
 
 
 class TestCalculatePriority(unittest.TestCase):
@@ -64,6 +70,7 @@ class TestCreateTicket(unittest.TestCase):
                 "priority": "critical",
                 "status": "open",
                 "assigned_to": None,
+                "notes": [],
             },
         )
         self.assertEqual(len(tickets), 1)
@@ -120,6 +127,157 @@ class TestCreateTicket(unittest.TestCase):
             create_ticket(tickets, "Broken router", "Network", "urgent", 1)
 
         self.assertEqual(tickets, [])
+
+    def test_non_list_tickets_is_rejected(self):
+        with self.assertRaises(ValueError):
+            create_ticket({}, "Valid title", "Network", "low", 1)
+
+    def test_non_string_title_is_rejected_without_mutation(self):
+        tickets = []
+        with self.assertRaises(ValueError):
+            create_ticket(tickets, 12345, "Network", "low", 1)
+        self.assertEqual(tickets, [])
+
+    def test_non_string_category_is_rejected_without_mutation(self):
+        tickets = []
+        with self.assertRaises(ValueError):
+            create_ticket(tickets, "Valid title", None, "low", 1)
+        self.assertEqual(tickets, [])
+
+    def test_boolean_and_float_users_rejected_without_mutation(self):
+        tickets = []
+        with self.assertRaises(ValueError):
+            create_ticket(tickets, "Title", "Network", "low", True)
+        with self.assertRaises(ValueError):
+            create_ticket(tickets, "Title", "Network", "low", 3.14)
+        with self.assertRaises(ValueError):
+            create_ticket(tickets, "Title", "Network", "low", 0)
+        with self.assertRaises(ValueError):
+            create_ticket(tickets, "Title", "Network", "low", -5)
+        self.assertEqual(tickets, [])
+
+
+class TestValidateNote(unittest.TestCase):
+    def test_valid_note_passes(self):
+        note = {"note_id": "N001", "author": "Alice", "message": "Investigating the network switch."}
+        validate_note(note)
+
+    def test_note_must_be_dict(self):
+        with self.assertRaises(ValueError):
+            validate_note("not a dict")
+
+    def test_note_missing_required_field(self):
+        note = {"note_id": "N001", "author": "Alice"}
+        with self.assertRaises(ValueError):
+            validate_note(note)
+
+    def test_note_extra_fields_rejected(self):
+        note = {"note_id": "N001", "author": "Alice", "message": "Valid message", "extra": 123}
+        with self.assertRaises(ValueError):
+            validate_note(note)
+
+    def test_note_id_format_invalid(self):
+        for bad_id in ["001", "N00", "N000", "Nabc", "T001", 123]:
+            with self.assertRaises(ValueError):
+                validate_note({"note_id": bad_id, "author": "Alice", "message": "Valid note message"})
+
+    def test_note_author_blank_or_invalid(self):
+        for bad_author in ["", "   ", None, 42]:
+            with self.assertRaises(ValueError):
+                validate_note({"note_id": "N001", "author": bad_author, "message": "Valid note message"})
+
+    def test_note_message_length_boundaries(self):
+        with self.assertRaises(ValueError):
+            validate_note({"note_id": "N001", "author": "Alice", "message": "tiny"})
+        with self.assertRaises(ValueError):
+            validate_note({"note_id": "N001", "author": "Alice", "message": "   four   "[0:4]})
+        validate_note({"note_id": "N001", "author": "Alice", "message": "12345"})
+        validate_note({"note_id": "N001", "author": "Alice", "message": "a" * 300})
+        with self.assertRaises(ValueError):
+            validate_note({"note_id": "N001", "author": "Alice", "message": "a" * 301})
+
+    def test_note_message_non_string_rejected(self):
+        with self.assertRaises(ValueError):
+            validate_note({"note_id": "N001", "author": "Alice", "message": 12345})
+
+
+class TestCentralValidation(unittest.TestCase):
+    def setUp(self):
+        self.valid_ticket = {
+            "id": "T001",
+            "title": "Wi-Fi outage",
+            "category": "Network",
+            "urgency": "high",
+            "affected_users": 10,
+            "priority": "critical",
+            "status": "open",
+            "assigned_to": None,
+            "notes": [
+                {"note_id": "N001", "author": "Alice", "message": "First note on ticket"}
+            ],
+        }
+
+    def test_valid_ticket_passes(self):
+        validate_ticket(self.valid_ticket)
+
+    def test_legacy_ticket_without_notes_passes(self):
+        legacy = self.valid_ticket.copy()
+        del legacy["notes"]
+        validate_ticket(legacy)
+
+    def test_ticket_must_be_dict(self):
+        with self.assertRaises(ValueError):
+            validate_ticket(["not a dict"])
+
+    def test_ticket_id_must_be_positive_format(self):
+        for bad_id in ["T000", "001", "T01", "Txyz", None]:
+            bad = self.valid_ticket.copy()
+            bad["id"] = bad_id
+            with self.assertRaises(ValueError):
+                validate_ticket(bad)
+
+    def test_invalid_category_rejected(self):
+        bad = self.valid_ticket.copy()
+        bad["category"] = "UnknownCategory"
+        with self.assertRaises(ValueError):
+            validate_ticket(bad)
+
+    def test_invalid_urgency_rejected(self):
+        bad = self.valid_ticket.copy()
+        bad["urgency"] = "extreme"
+        with self.assertRaises(ValueError):
+            validate_ticket(bad)
+
+    def test_priority_mismatch_rejected(self):
+        bad = self.valid_ticket.copy()
+        bad["priority"] = "low"
+        with self.assertRaises(ValueError):
+            validate_ticket(bad)
+
+    def test_in_progress_without_assignee_rejected(self):
+        bad = self.valid_ticket.copy()
+        bad["status"] = "in_progress"
+        bad["assigned_to"] = None
+        with self.assertRaises(ValueError):
+            validate_ticket(bad)
+
+    def test_duplicate_notes_within_ticket_rejected(self):
+        bad = self.valid_ticket.copy()
+        bad["notes"] = [
+            {"note_id": "N001", "author": "Alice", "message": "First note here"},
+            {"note_id": "N001", "author": "Bob", "message": "Duplicate ID note"},
+        ]
+        with self.assertRaises(ValueError):
+            validate_ticket(bad)
+
+    def test_validate_tickets_duplicate_ids_rejected(self):
+        second = self.valid_ticket.copy()
+        with self.assertRaises(ValueError):
+            validate_tickets([self.valid_ticket, second])
+
+    def test_validate_tickets_non_list_rejected(self):
+        with self.assertRaises(ValueError):
+            validate_tickets("not a list")
 
 
 if __name__ == "__main__":
