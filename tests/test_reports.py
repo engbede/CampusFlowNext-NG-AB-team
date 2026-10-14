@@ -9,18 +9,21 @@ class TestGenerateReport(unittest.TestCase):
             {
                 "id": "T001",
                 "title": "Server outage",
+                "category": "Network",
                 "priority": "critical",
                 "status": "open",
             },
             {
                 "id": "T002",
                 "title": "Login failure",
+                "category": "Software",
                 "priority": "high",
                 "status": "in_progress",
             },
             {
                 "id": "T003",
                 "title": "Printer problem",
+                "category": "Hardware",
                 "priority": "low",
                 "status": "resolved",
             },
@@ -28,7 +31,6 @@ class TestGenerateReport(unittest.TestCase):
 
     def test_report_counts_total_tickets(self):
         report = generate_report(self.tickets)
-
         self.assertEqual(report["total_tickets"], 3)
 
     def test_report_counts_statuses(self):
@@ -56,10 +58,41 @@ class TestGenerateReport(unittest.TestCase):
             },
         )
 
+    def test_report_counts_categories(self):
+        report = generate_report(self.tickets)
+
+        self.assertEqual(
+            report["category_counts"],
+            {
+                "Network": 1,
+                "Hardware": 1,
+                "Software": 1,
+                "Other": 0,
+            },
+        )
+
+    def test_report_counts_resolved_and_unresolved(self):
+        report = generate_report(self.tickets)
+
+        self.assertEqual(report["resolved_tickets"], 1)
+        self.assertEqual(report["unresolved_tickets"], 2)
+
+    def test_resolution_percentage(self):
+        report = generate_report(self.tickets)
+
+        self.assertAlmostEqual(
+            report["resolution_percentage"],
+            100 / 3,
+        )
+
     def test_empty_ticket_list(self):
         report = generate_report([])
 
         self.assertEqual(report["total_tickets"], 0)
+        self.assertEqual(report["resolved_tickets"], 0)
+        self.assertEqual(report["unresolved_tickets"], 0)
+        self.assertEqual(report["resolution_percentage"], 0.0)
+
         self.assertEqual(
             report["status_counts"],
             {
@@ -76,6 +109,16 @@ class TestGenerateReport(unittest.TestCase):
                 "high": 0,
                 "medium": 0,
                 "low": 0,
+            },
+        )
+
+        self.assertEqual(
+            report["category_counts"],
+            {
+                "Network": 0,
+                "Hardware": 0,
+                "Software": 0,
+                "Other": 0,
             },
         )
 
