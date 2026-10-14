@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from campusflow.reports import generate_report
+from campusflow.search import search_tickets
 from campusflow.storage import load_tickets, save_tickets
 from campusflow.tickets import (
     assign_ticket,
@@ -71,7 +72,66 @@ def create_ticket_menu(tickets, data_file=None):
         print(f"\nTicket created successfully!")
         print(f"ID: {ticket['id']} | Priority: {ticket['priority']}")
     except ValueError as error:
+        print(f"Error: {error}") 
+
+
+def display_search_results(tickets):
+    """Display the required fields for search results."""
+    if not tickets:
+        print("\nNo matching tickets found.")
+        return
+
+    for ticket in tickets:
+        print("-" * 40)
+        print(f"ID: {ticket.get('id', 'N/A')}")
+        print(f"Title: {ticket.get('title', 'N/A')}")
+        print(f"Category: {ticket.get('category', 'N/A')}")
+        print(f"Priority: {ticket.get('priority', 'N/A')}")
+        print(f"Status: {ticket.get('status', 'N/A')}")
+        print(f"Assigned to: {ticket.get('assigned_to') or 'Unassigned'}")
+
+    print("-" * 40)
+
+
+def search_tickets_menu(tickets):
+    """Prompt for search criteria and display matching tickets."""
+    print("\n--- Search Tickets ---")
+    query = input("Title contains (leave blank for any title): ").strip()
+    category = input(
+        "Category (Network, Hardware, Software, Other; blank for any): "
+    ).strip()
+    status = input(
+        "Status (open, in_progress, resolved; blank for any): "
+    ).strip()
+    priority = input(
+        "Priority (critical, high, medium, low; blank for any): "
+    ).strip()
+
+    while True:
+        sort_choice = input(
+            "Sort results by priority? (y/n): "
+        ).strip().lower()
+
+        if sort_choice in {"y", "yes", "n", "no"}:
+            break
+
+        print("Please enter y or n.")
+
+    try:
+        results = search_tickets(
+            tickets,
+            query=query,
+            category=category,
+            status=status,
+            priority=priority,
+            sort_by_priority=sort_choice in {"y", "yes"},
+        )
+    except ValueError as error:
         print(f"Error: {error}")
+        return
+
+    print("\nSEARCH RESULTS")
+    display_search_results(results)
 
 
 def show_work_queue(tickets):
@@ -131,7 +191,7 @@ def reopen_ticket_menu(tickets, data_file=None):
 
 
 def show_report(tickets):
-    """Display summary counts of tickets by status and priority."""
+    """Display ticket totals and distributions."""
     report = generate_report(tickets)
 
     print("\nTICKET REPORT")
@@ -145,12 +205,22 @@ def show_report(tickets):
     for priority, count in report["priority_counts"].items():
         print(f"  {priority}: {count}")
 
+    print("\nTickets by category:")
+    for category, count in report["category_counts"].items():
+        print(f"  {category}: {count}")
+
+    print(f"\nResolved tickets: {report['resolved_tickets']}")
+    print(f"Unresolved tickets: {report['unresolved_tickets']}")
+    print(
+        "Resolution percentage: "
+        f"{report['resolution_percentage']:.1f}%"
+    )
 
 def main(data_file=None):
     """Run the CampusFlow Helpdesk interactive CLI."""
     target_file = data_file or get_default_data_file()
-    tickets = load_tickets(target_file)
-
+    tickets = load_tickets(target_file) 
+    
     while True:
         print("\n=== CampusFlow Helpdesk ===")
         print("1. Create a ticket")
@@ -160,7 +230,8 @@ def main(data_file=None):
         print("5. Change ticket status")
         print("6. Reopen a ticket")
         print("7. View report")
-        print("8. Exit")
+        print("8. Search tickets")
+        print("9. Exit")
 
         choice = input("Choose an option: ").strip()
 
@@ -179,8 +250,10 @@ def main(data_file=None):
         elif choice == "7":
             show_report(tickets)
         elif choice == "8":
+            search_tickets_menu(tickets)
+        elif choice == "9":
             print("Goodbye!")
             break
         else:
-            print("Invalid choice. Please choose a number from 1 to 8.")
+            print("Invalid choice. Please choose a number from 1 to 9.")
 
