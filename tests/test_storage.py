@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from campusflow.storage import load_tickets, save_tickets
 from campusflow.tickets import add_note, create_ticket
@@ -276,6 +277,15 @@ class TestSaveTickets(unittest.TestCase):
             save_tickets([bad_ticket], self.path)
 
         self.assertEqual(self.path.read_text(encoding="utf-8"), original_content)
+
+    def test_save_cleans_temporary_file_on_write_error(self):
+        tickets = [VALID_TICKET.copy()]
+        with patch("json.dump", side_effect=RuntimeError("Simulated write error")):
+            with self.assertRaises(RuntimeError):
+                save_tickets(tickets, self.path)
+
+        temp_files = list(self.path.parent.glob(".*.tmp"))
+        self.assertEqual(temp_files, [])
 
 
 class TestStorageNotesAndContinuity(unittest.TestCase):

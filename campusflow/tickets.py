@@ -315,8 +315,18 @@ def add_note(tickets, ticket_id, author, message):
     if ticket.get("status") == "resolved":
         raise ValueError("Cannot add notes to a resolved ticket.")
 
-    if "notes" not in ticket or not isinstance(ticket["notes"], list):
+    if "notes" not in ticket:
         ticket["notes"] = []
+    elif not isinstance(ticket["notes"], list):
+        raise ValueError("Ticket notes must be a list.")
+    else:
+        seen_note_ids = set()
+        for existing_note in ticket["notes"]:
+            validate_note(existing_note)
+            note_id = existing_note["note_id"]
+            if note_id in seen_note_ids:
+                raise ValueError(f"Duplicate note ID: {note_id}")
+            seen_note_ids.add(note_id)
 
     note_id = _next_note_id(ticket)
     note = {
@@ -341,7 +351,13 @@ def _extract_numeric_note_id(note_id):
 def get_notes(tickets, ticket_id):
     """Return notes for a ticket in sequential note-ID order."""
     ticket = _find_ticket(tickets, ticket_id)
-    notes = ticket.get("notes") or []
+    if "notes" not in ticket:
+        return []
+    notes = ticket["notes"]
+    if not isinstance(notes, list):
+        raise ValueError("Ticket notes must be a list.")
+    for note in notes:
+        validate_note(note)
     return sorted(
         notes, key=lambda note: _extract_numeric_note_id(note.get("note_id", ""))
     )

@@ -54,3 +54,32 @@
   - Added `test_failed_load_preserves_valid_in_memory_state`.
   - Added `test_invalid_author_does_not_mutate_or_consume_id`.
   - Full test suite passed with 133 tests passing.
+
+## Entry 5: Independent Audit and Note Data Integrity Remediation
+- **Date/Time**: 2026-10-14 13:40:00 +01:00
+- **Context**: Independent audit of `add_note()` and `get_notes()` in `campusflow/tickets.py` and temporary file cleanup in `campusflow/storage.py`.
+- **Inquiry**:
+  - `add_note` previously used `if "notes" not in ticket or not isinstance(ticket["notes"], list): ticket["notes"] = []`. Does this improperly overwrite malformed existing data?
+  - Should `add_note` validate existing notes before appending, and should `get_notes` guard against malformed containers and non-dict entries?
+  - Does `storage.py` clean up temporary files if a non-`OSError` exception occurs during save?
+- **Guidance Considered**:
+  - Distinguish between missing `notes` (backward compatibility for legacy tickets) and malformed `notes` (must raise `ValueError("Ticket notes must be a list.")` without data loss).
+  - Pre-validate existing notes on the ticket before appending to prevent corrupting note counters or concealing bad data.
+  - Validate in `get_notes` that the container is a list and elements are valid note dictionaries, preventing uncontrolled `AttributeError`.
+  - Broaden cleanup exception handling in `save_tickets` from `except OSError:` to `except Exception:`.
+- **Independent Evidence & Experimentation**:
+  - Executed reproduction script confirming that malformed `ticket["notes"] = "corrupt"` was silently overwritten by `add_note` and caused unhandled `AttributeError` in `get_notes`.
+  - Added 4 regression tests in `tests/test_ticket_manager.py` and 1 cleanup test in `tests/test_storage.py`.
+  - Confirmed the 4 regression tests failed on the pre-remediation code (2 `AssertionError` for missing `ValueError`, 2 `AttributeError`).
+- **Decisions Made & Reasoning**:
+  - Updated `add_note` to check `if "notes" not in ticket: ticket["notes"] = [] elif not isinstance(ticket["notes"], list): raise ValueError("Ticket notes must be a list.")`.
+  - Added loop validating existing notes in `add_note` before creating a new note.
+  - Updated `get_notes` to validate that `ticket["notes"]` is a list and each note satisfies `validate_note(note)`.
+  - Updated `save_tickets` to catch `Exception` so temporary files are always unlinked on failure.
+- **Verification Performed**:
+  - `python3 -m unittest tests.test_tickets -v` (42 tests OK).
+  - `python3 -m unittest tests.test_ticket_manager -v` (45 tests OK).
+  - `python3 -m unittest tests.test_storage -v` (30 tests OK).
+  - `python3 -m unittest discover -s tests -v` (138 tests OK).
+  - `python3 -m compileall -q campusflow tests ticket_manager.py main.py storage.py reports.py` (OK).
+  - `git diff --check` (0 issues).

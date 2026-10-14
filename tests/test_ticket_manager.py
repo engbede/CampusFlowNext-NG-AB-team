@@ -412,6 +412,45 @@ class TestTicketNotes(unittest.TestCase):
         with self.assertRaises(ValueError):
             get_notes(self.tickets, "T999")
 
+    def test_add_note_non_list_notes_field_raises_error_without_mutation(self):
+        corrupt_ticket = {
+            "id": "T005",
+            "title": "Corrupt notes ticket",
+            "priority": "low",
+            "status": "open",
+            "assigned_to": None,
+            "notes": "not a list",
+        }
+        tickets = [corrupt_ticket]
+        with self.assertRaises(ValueError):
+            add_note(tickets, "T005", "Alice", "Valid note message.")
+        self.assertEqual(corrupt_ticket["notes"], "not a list")
+
+    def test_add_note_malformed_existing_notes_rejected_without_mutation(self):
+        bad_existing = {
+            "id": "T006",
+            "title": "Malformed existing notes",
+            "priority": "low",
+            "status": "open",
+            "assigned_to": None,
+            "notes": [{"note_id": "bad_id", "author": "Alice", "message": "Valid"}],
+        }
+        tickets = [bad_existing]
+        with self.assertRaises(ValueError):
+            add_note(tickets, "T006", "Bob", "Valid note message.")
+        self.assertEqual(len(bad_existing["notes"]), 1)
+        self.assertEqual(bad_existing["notes"][0]["note_id"], "bad_id")
+
+    def test_get_notes_non_list_container_raises_value_error(self):
+        bad_ticket = {"id": "T007", "status": "open", "notes": "corrupted"}
+        with self.assertRaises(ValueError):
+            get_notes([bad_ticket], "T007")
+
+    def test_get_notes_non_dict_element_raises_value_error(self):
+        bad_ticket = {"id": "T008", "status": "open", "notes": ["not a dict"]}
+        with self.assertRaises(ValueError):
+            get_notes([bad_ticket], "T008")
+
 
 if __name__ == "__main__":
     unittest.main()

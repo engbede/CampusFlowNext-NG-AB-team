@@ -12,7 +12,7 @@ Previously, validation logic was fragmented between `campusflow/tickets.py` and 
   - `validate_tickets(tickets)`: Validates the entire list collection, checking each ticket and enforcing uniqueness of ticket IDs across the collection and note IDs within each ticket.
 - `campusflow/storage.py` delegates all ticket and note structure validation to these centralized validators, eliminating duplication.
 
-## 2. Note Data Model and Sequential ID Continuity
+## 2. Note Data Model, Container Integrity, and Sequential ID Continuity
 
 ### Data Model
 ```python
@@ -25,6 +25,11 @@ Previously, validation logic was fragmented between `campusflow/tickets.py` and 
 
 ### Decision & Invariants
 - **Independent Per-Ticket Scope**: Note IDs are scoped to individual tickets rather than globally across the system. Ticket `T001` has its own sequence (`N001`, `N002`, ...), and Ticket `T002` independently starts at `N001`.
+- **Note Container and Entry Integrity**:
+  - Legacy tickets lacking a `"notes"` field are accepted for backward compatibility, and `add_note` initializes `ticket["notes"] = []`.
+  - If a ticket contains a `"notes"` field that is not a list (e.g. malformed string or dictionary), `add_note` raises `ValueError("Ticket notes must be a list.")` without mutating or overwriting the existing ticket state.
+  - Prior to appending a new note, `add_note` validates all existing notes in `ticket["notes"]` using `validate_note` and checks for duplicate note IDs. If any existing note is corrupt, `add_note` raises `ValueError`, preventing silent corruption of sequence counters or masking of defective data.
+  - `get_notes` validates that `ticket["notes"]` is a list and each entry satisfies `validate_note(note)` before sorting and returning, preventing uncontrolled `AttributeError` or concealment of malformed note records.
 - **High-Water-Mark Sequencing**: Next note ID generation (`_next_note_id`) calculates `max(existing_numeric_ids) + 1`. This safely accommodates non-contiguous legacy IDs (e.g. if a note was removed or historical data was imported with gaps).
 - **ID Continuity Across Reload**: When tickets and notes are reloaded from JSON persistence, existing IDs are scanned dynamically. Subsequent calls to `add_note` continue seamlessly from the highest existing ID without collision.
 - **Ordered Retrieval**: Notes are returned in note-ID order via `get_notes(tickets, ticket_id)` by sorting on numeric suffix.
@@ -41,7 +46,7 @@ Operations must never partially mutate ticket state when inputs or preconditions
   - `change_status`: Resolved tickets cannot transition directly to `in_progress`; they must transition to `open` (or via `reopen_ticket`).
   - `add_note`: Notes cannot be added to resolved tickets; attempting to do so raises `ValueError("Cannot add notes to a resolved ticket.")`.
 - **Zero Mutation & Zero ID Consumption on Failure**:
-  - If note parameters fail validation (e.g. author is empty, message is under 5 characters), `add_note` raises `ValueError` before generating a note or touching `ticket["notes"]`. The next valid note invocation receives the unconsumed ID.
+  - If note parameters fail validation (e.g. author is empty, message is under 5 characters) or preconditions fail, `add_note` raises `ValueError` before generating a note or touching `ticket["notes"]`. The next valid note invocation receives the unconsumed ID.
 
 ## 4. JSON Persistence and Backward Compatibility
 
@@ -55,9 +60,9 @@ Storage must safely handle existing ticket files generated prior to the notes sp
   - When notes are added to a legacy record, `"notes"` is dynamically initialized on the ticket dictionary.
 - **Whole-Collection Pre-Validation**:
   - `save_tickets` executes `validate_tickets(tickets)` on the entire collection before touching the filesystem. If any record or note is invalid, saving is aborted.
-- **Atomic Replacement**:
+- **Atomic Replacement & Robust Cleanup**:
   - `save_tickets` writes JSON to a hidden temporary file (`.{path.name}.tmp`) in the destination directory, forces write to storage via `os.fsync`, and atomically replaces the destination file via `os.replace`.
-  - In the event of an I/O error or validation failure, any temporary file is cleaned up and the existing file is preserved completely unchanged.
+  - In the event of any exception during save (including I/O errors and serialization errors), the temporary file is guaranteed to be unlinked and the existing file is preserved completely unchanged.
 - **Fail-Safe Loading**:
   - If a file contains invalid JSON or schema violations, `load_tickets` raises `ValueError` without modifying caller memory.
 

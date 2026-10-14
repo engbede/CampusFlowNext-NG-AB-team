@@ -67,7 +67,7 @@ def save_tickets(tickets, path):
             os.fsync(temporary_file.fileno())
 
         os.replace(temporary_path, path)
-    except OSError:
+    except Exception:
         if temporary_path is not None:
             try:
                 temporary_path.unlink(missing_ok=True)
